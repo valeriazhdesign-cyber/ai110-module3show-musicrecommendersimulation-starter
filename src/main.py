@@ -1,33 +1,65 @@
 """
 Command line runner for the Music Recommender Simulation.
 
-This file helps you quickly run and test your recommender.
+Loads the song catalog and runs several distinct user profiles through the
+recommender so their outputs can be compared side by side.
 
-You will implement the functions in recommender.py:
-- load_songs
-- score_song
-- recommend_songs
+Usage:
+    python -m src.main                     # balanced mode (default)
+    python -m src.main genre-first          # switch scoring mode
+    python -m src.main mood-first --diversify
+    python -m src.main --list-modes
 """
 
-from recommender import load_songs, recommend_songs
+import sys
+from tabulate import tabulate
+
+from src.recommender import load_songs, recommend_songs, STRATEGIES
+
+# Distinct taste profiles used to stress test the scoring logic (Phase 4).
+USER_PROFILES = {
+    "High-Energy Pop": {"genre": "pop", "mood": "happy", "energy": 0.85},
+    "Chill Lofi": {"genre": "lofi", "mood": "chill", "energy": 0.35},
+    "Deep Intense Rock": {"genre": "rock", "mood": "intense", "energy": 0.9},
+    # Adversarial: conflicting preferences (high energy + sad mood) with no
+    # genre in the catalog that matches "screamo" -- tests whether the
+    # system degrades gracefully when nothing matches well.
+    "Adversarial Conflict": {"genre": "screamo", "mood": "sad", "energy": 0.9},
+}
+
+
+def print_recommendations(profile_name: str, user_prefs: dict, recommendations) -> None:
+    print(f"=== {profile_name} (genre={user_prefs['genre']}, mood={user_prefs['mood']}, energy={user_prefs['energy']}) ===\n")
+    rows = [
+        [rank, song["title"], song["artist"], f"{score:.2f}", explanation]
+        for rank, (song, score, explanation) in enumerate(recommendations, start=1)
+    ]
+    print(tabulate(rows, headers=["#", "Title", "Artist", "Score", "Reasons"], tablefmt="github"))
+    print()
 
 
 def main() -> None:
-    songs = load_songs("data/songs.csv") 
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    diversify = "--diversify" in sys.argv
 
-    # Starter example profile
-    user_prefs = {"genre": "pop", "mood": "happy", "energy": 0.8}
+    if "--list-modes" in sys.argv:
+        print("Available scoring modes:", ", ".join(STRATEGIES.keys()))
+        return
 
-    recommendations = recommend_songs(user_prefs, songs, k=5)
+    mode = args[0] if args else "balanced"
+    if mode not in STRATEGIES:
+        print(f"Unknown mode '{mode}'. Available modes: {', '.join(STRATEGIES.keys())}")
+        return
+    strategy = STRATEGIES[mode]
 
-    print("\nTop recommendations:\n")
-    for rec in recommendations:
-        # You decide the structure of each returned item.
-        # A common pattern is: (song, score, explanation)
-        song, score, explanation = rec
-        print(f"{song['title']} - Score: {score:.2f}")
-        print(f"Because: {explanation}")
-        print()
+    songs = load_songs("data/songs.csv")
+    print(f"Loaded songs: {len(songs)}")
+    print(f"Scoring mode: {strategy.name}" + (" (diversity penalty on)" if diversify else ""))
+    print()
+
+    for profile_name, user_prefs in USER_PROFILES.items():
+        recommendations = recommend_songs(user_prefs, songs, k=5, strategy=strategy, diversify=diversify)
+        print_recommendations(profile_name, user_prefs, recommendations)
 
 
 if __name__ == "__main__":
